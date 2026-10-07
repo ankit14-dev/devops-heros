@@ -54,6 +54,10 @@ final-devops-project/
 
 ## 2. Architecture
 
+![architecture](screenshots/00-architecture.png)
+
+<details><summary>Mermaid source of the diagram</summary>
+
 ```mermaid
 flowchart TB
   dev([Developer]) -->|git push| gh[(GitHub repo)]
@@ -79,6 +83,8 @@ flowchart TB
   prom --> graf[Grafana] & am[Alertmanager]
   tf[[Terraform]] -->|VPC, SG, IAM, EC2 k3s, S3 backups| aws((AWS))
 ```
+
+</details>
 
 Request path inside the cluster: `Ingress /` → **frontend** (static React) · `Ingress /api` → **backend** Service → backend pods → `taskboard-postgres` (headless Service) → PostgreSQL pod with its own PVC.
 
