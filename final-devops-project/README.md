@@ -55,30 +55,29 @@ final-devops-project/
 ## 2. Architecture
 
 ```mermaid
-flowchart LR
+flowchart TB
   dev([Developer]) -->|git push| gh[(GitHub repo)]
-  gh --> ci{{GitHub Actions}}
-  subgraph CI[CI - every push / PR]
-    t[Lint + tests<br/>PostgreSQL service] --> sec[SAST Bandit+CodeQL<br/>SCA pip-audit+npm audit<br/>gitleaks]
-    sec --> b[Docker build<br/>backend + frontend] --> tr[Trivy scan] --> gate{Security gate}
+  gh --> t
+  subgraph CI["CI - GitHub Actions (every push / PR)"]
+    direction LR
+    t[Lint + tests<br/>real PostgreSQL] --> sec[SAST Bandit + CodeQL<br/>SCA pip-audit + npm audit<br/>Secrets gitleaks] --> b[Docker build<br/>backend + frontend] --> tr[Trivy scan] --> gate{Security<br/>gate}
   end
-  ci --> t
-  subgraph CD[CD - main branch only]
-    gate -->|pass| reg[(GHCR images)]
-    reg --> kind[Helm install on kind<br/>+ helm test]
-    kind --> bump[Commit new tag to<br/>gitops/values-gitops.yaml]
+  subgraph CD["CD (main branch)"]
+    direction LR
+    reg[(GHCR images<br/>:sha)] --> kind[Helm install on kind<br/>+ helm test] --> bump[Commit new tag to<br/>gitops/values-gitops.yaml]
   end
-  bump --> gh
-  gh -. polled by .-> argo[Argo CD]
-  argo -->|sync| k8s
-  subgraph k8s[Kubernetes cluster - minikube / k3s on AWS EC2]
-    ing[Ingress] --> fe[frontend x2<br/>nginx] --> be[backend x2-5<br/>FastAPI + HPA] --> pg[(PostgreSQL<br/>StatefulSet + PVC)]
+  gate -->|pass| reg
+  bump -->|bot commit| gh
+  gh -. polled .-> argo[Argo CD]
+  argo -->|sync| ing
+  subgraph K8S["Kubernetes - minikube / k3s on AWS"]
+    direction LR
+    ing[Ingress] --> fe[frontend x2<br/>nginx] --> be[backend 2-5 pods<br/>FastAPI + HPA] --> pg[(PostgreSQL<br/>StatefulSet + PVC)]
   end
-  reg -. pull .-> k8s
+  reg -. image pull .-> fe
   prom[Prometheus] -->|scrape /metrics| be
-  prom --> graf[Grafana dashboards]
-  prom --> am[Alertmanager]
-  tf[[Terraform]] -->|VPC, SG, IAM, EC2 k3s, S3| aws((AWS))
+  prom --> graf[Grafana] & am[Alertmanager]
+  tf[[Terraform]] -->|VPC, SG, IAM, EC2 k3s, S3 backups| aws((AWS))
 ```
 
 Request path inside the cluster: `Ingress /` → **frontend** (static React) · `Ingress /api` → **backend** Service → backend pods → `taskboard-postgres` (headless Service) → PostgreSQL pod with its own PVC.
