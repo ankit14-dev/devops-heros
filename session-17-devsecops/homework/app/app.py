@@ -231,4 +231,11 @@ def server_error(e):
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5001, debug=True)
+    # Local development only. In the container the app runs under gunicorn (see Dockerfile).
+    # SECURITY FIX (Bandit B201): never enable the Werkzeug debugger by default - it allows
+    # arbitrary code execution. Opt in explicitly with FLASK_DEBUG=1 on your own machine.
+    app.run(
+        host=os.environ.get("APP_HOST", "127.0.0.1"),
+        port=int(os.environ.get("APP_PORT", "5001")),
+        debug=os.environ.get("FLASK_DEBUG") == "1",
+    )
