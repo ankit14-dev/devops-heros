@@ -33,10 +33,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -44,7 +44,9 @@ jobs:
         run: pip install flake8==7.3.0
 
       - name: Run flake8
-        run: flake8 app tests
+        run: |
+          flake8 app tests
+          echo "### ✅ Lint: flake8 found no issues in \`app/\` and \`tests/\`" >> "$GITHUB_STEP_SUMMARY"
 
   test:
     name: Unit tests (Python ${{ matrix.python-version }})
@@ -54,10 +56,10 @@ jobs:
       matrix:
         python-version: ["3.11", "3.12"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
@@ -70,11 +72,18 @@ jobs:
         run: |
           python -m pytest -v \
             --junitxml=test-results/results.xml \
-            --cov=app --cov-report=term-missing --cov-report=xml:test-results/coverage.xml
+            --cov=app --cov-report=term-missing --cov-report=xml:test-results/coverage.xml \
+            | tee test-results/pytest-output.txt
+          {
+            echo "### 🧪 Unit tests – Python ${{ matrix.python-version }}"
+            echo '```'
+            grep -E "PASSED|FAILED|TOTAL|passed|failed" test-results/pytest-output.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload test results (artifact)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-results-py${{ matrix.python-version }}
           path: ${{ env.APP_DIR }}/test-results/
@@ -85,27 +94,36 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Build image
         run: |
           docker build --build-arg APP_VERSION=${GITHUB_SHA::7} \
             -t session16-calculator:${GITHUB_SHA::7} .
           docker images session16-calculator
+          {
+            echo "### 🐳 Docker image built"
+            echo '```'
+            docker images session16-calculator
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Smoke test the container
         run: |
           docker run -d --name smoke -p 5000:5000 session16-calculator:${GITHUB_SHA::7}
           for i in $(seq 1 15); do curl -fs localhost:5000/health && break; sleep 1; done
           echo
-          curl -fs "localhost:5000/api/add?a=2&b=3"
+          curl -fs "localhost:5000/api/add?a=2&b=3" | tee smoke.json
+          {
+            echo "**Container smoke test** \`GET /api/add?a=2&b=3\` → \`$(cat smoke.json)\`"
+          } >> "$GITHUB_STEP_SUMMARY"
           docker rm -f smoke
 
       - name: Save image as a tarball
         run: docker save session16-calculator:${GITHUB_SHA::7} | gzip > session16-calculator.tar.gz
 
       - name: Upload image artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: docker-image
           path: ${{ env.APP_DIR }}/session16-calculator.tar.gz
@@ -116,7 +134,7 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Look for committed secrets / key files
         run: |
@@ -124,6 +142,7 @@ jobs:
             echo "::error::Sensitive file committed!"; exit 1
           fi
           echo "No sensitive files found."
+          echo "### 🔒 Security check: no \`.env\`, \`*.pem\` or \`*.key\` files committed" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Use a secret safely (GitHub masks it in logs)
         env:
@@ -147,10 +166,10 @@ jobs:
     outputs:
       image: ${{ steps.meta.outputs.image }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Download image artifact from the build job
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: docker-image
           path: ${{ env.APP_DIR }}
@@ -159,7 +178,7 @@ jobs:
         run: gunzip -c session16-calculator.tar.gz | docker load
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -174,6 +193,11 @@ jobs:
           docker push $IMAGE_NAME:$SHORT
           docker push $IMAGE_NAME:latest
           echo "image=$IMAGE_NAME:$SHORT" >> "$GITHUB_OUTPUT"
+          {
+            echo "### 📦 Pushed to GitHub Container Registry"
+            echo "- \`$IMAGE_NAME:$SHORT\`"
+            echo "- \`$IMAGE_NAME:latest\`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   deploy-staging:
     name: Deploy to staging
@@ -183,7 +207,7 @@ jobs:
       name: staging
     steps:
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -203,6 +227,12 @@ jobs:
           curl -fs "localhost:8080/api/multiply?a=6&b=7"
           echo
           test "$(curl -s -o /dev/null -w '%{http_code}' 'localhost:8080/api/divide?a=1&b=0')" = 400
+          {
+            echo "### ✅ Post-deployment smoke tests passed"
+            echo "- \`GET /health\` → \`$(curl -s localhost:8080/health)\`"
+            echo "- \`GET /api/multiply?a=6&b=7\` → \`$(curl -s 'localhost:8080/api/multiply?a=6&b=7')\`"
+            echo "- \`GET /api/divide?a=1&b=0\` → HTTP 400 (expected)"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Deployment summary
         working-directory: .
