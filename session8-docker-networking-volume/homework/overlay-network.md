@@ -37,7 +37,9 @@ Quick notes I want to remember:
 docker network ls   # the SCOPE column shows "local" vs "swarm"
 ```
 
-<!-- REAL-OUTPUT: docker network ls (after swarm init, showing ingress + docker_gwbridge) -->
+Real output on my machine after `docker swarm init`: `ingress` is the only network with `overlay`/`swarm` scope, and `docker_gwbridge` appeared automatically.
+
+![swarm init + network ls](screenshots/11-overlay-swarm-init.png)
 
 ---
 
@@ -149,7 +151,15 @@ docker run --rm -it --network app-net alpine sh -c "nslookup api && wget -qO- ht
 docker network inspect app-net
 ```
 
-<!-- REAL-OUTPUT: docker swarm init / docker network create -d overlay --attachable / docker service create + docker service ps (single-node swarm is enough to demonstrate) -->
+### What I actually ran (single-node swarm)
+
+I created an attachable overlay `app-overlay` (VXLAN ID 4097, subnet 10.0.1.0/24), started a 2-replica `web` service on it, and then attached a standalone `alpine` container. `web` resolves to the service **VIP** (10.0.1.2), while `tasks.web` returns the individual task IPs (10.0.1.3, 10.0.1.4):
+
+![overlay service](screenshots/12-overlay-service.png)
+
+Cleanup:
+
+![cleanup](screenshots/13-overlay-cleanup.png)
 
 Cleanup:
 
