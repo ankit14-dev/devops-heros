@@ -1,0 +1,23 @@
+# App listens only on 127.0.0.1 inside the pod -> works from inside, unreachable from other pods
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inventory
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: inventory}}
+  template:
+    metadata: {labels: {app: inventory}}
+    spec:
+      containers:
+        - name: app
+          image: python:3.11-alpine3.19
+          command: ["python3", "-m", "http.server", "8000", "--bind", "127.0.0.1"]
+          ports: [{containerPort: 8000}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: inventory}
+spec:
+  selector: {app: inventory}
+  ports: [{port: 80, targetPort: 8000}]

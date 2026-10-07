@@ -1,0 +1,9 @@
+# Image tag that does not exist (from scenario-2-imagepull / mini-project broken-pod)
+apiVersion: v1
+kind: Pod
+metadata:
+  name: imagepull-app
+spec:
+  containers:
+    - name: app
+      image: nginx:this-tag-does-not-exist

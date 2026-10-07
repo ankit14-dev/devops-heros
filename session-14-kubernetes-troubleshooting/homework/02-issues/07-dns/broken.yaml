@@ -1,0 +1,24 @@
+# Client uses a wrong service name AND the wrong namespace (from scenario-4-dns-failure)
+apiVersion: v1
+kind: Pod
+metadata:
+  name: dns-client
+spec:
+  containers:
+    - name: client
+      image: curlimages/curl:8.5.0
+      command: ["sh", "-c"]
+      args:
+        - |
+          while true; do
+            echo "$(date +%T) connecting to $DB_HOST:5432 ..."
+            if code=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 3 http://$DB_HOST:5432); then
+              echo "  -> connected (HTTP $code)"
+            else
+              echo "  -> FAILED (curl exit $?: 6 = could not resolve host)"
+            fi
+            sleep 5
+          done
+      env:
+        - name: DB_HOST
+          value: postgres-db-wrong-name.production.svc.cluster.local

@@ -1,0 +1,10 @@
+# FIXED: point to an image that exists and is public (my Session 16 image on GHCR).
+# For a really private image you would add:  imagePullSecrets: [{name: ghcr-creds}]
+apiVersion: v1
+kind: Pod
+metadata:
+  name: errimagepull-app
+spec:
+  containers:
+    - name: app
+      image: ghcr.io/ankit14-dev/session16-calculator:latest

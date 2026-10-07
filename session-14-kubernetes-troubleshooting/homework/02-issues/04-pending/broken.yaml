@@ -1,0 +1,13 @@
+# Requests more than any node can offer (from scenario-3-pending)
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pending-app
+spec:
+  containers:
+    - name: hungry-app
+      image: nginx:alpine
+      resources:
+        requests:
+          cpu: "500"
+          memory: "1000Gi"

@@ -1,0 +1,21 @@
+# FIXED: memory limit raised (the real fix for a leak is fixing the code)
+apiVersion: v1
+kind: Pod
+metadata:
+  name: oom-app
+spec:
+  restartPolicy: Never
+  containers:
+    - name: memory-leaker
+      image: python:3.11-alpine3.19
+      command: ["python3", "-c"]
+      args:
+        - |
+          print("Allocating memory rapidly...", flush=True)
+          chunks = []
+          for i in range(10):
+              chunks.append(b"x" * (10 * 1024 * 1024))
+          print(f"allocated {len(chunks)*10} MiB - done", flush=True)
+      resources:
+        limits:
+          memory: "256Mi"   # FIX: limit sized for what the app really needs (100MiB + overhead)

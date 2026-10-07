@@ -1,0 +1,9 @@
+# Image in a registry/repository we are not allowed to pull (no imagePullSecret) -> ErrImagePull
+apiVersion: v1
+kind: Pod
+metadata:
+  name: errimagepull-app
+spec:
+  containers:
+    - name: app
+      image: ghcr.io/ankit14-dev/this-private-image-does-not-exist:1.0

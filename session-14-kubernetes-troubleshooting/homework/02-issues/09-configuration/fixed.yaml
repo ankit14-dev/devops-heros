@@ -1,0 +1,25 @@
+# FIXED: env var references the existing key TIMEOUT_SECONDS
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: payments-config
+data:
+  API_URL: "https://payments.example.com"
+  TIMEOUT_SECONDS: "10"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: payments-app
+spec:
+  containers:
+    - name: app
+      image: busybox:1.36
+      command: ["sh", "-c", "echo API=$API_URL TIMEOUT=$TIMEOUT; sleep 3600"]
+      env:
+        - name: API_URL
+          valueFrom:
+            configMapKeyRef: {name: payments-config, key: API_URL}
+        - name: TIMEOUT
+          valueFrom:
+            configMapKeyRef: {name: payments-config, key: TIMEOUT_SECONDS}   # FIX: correct key name

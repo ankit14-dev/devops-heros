@@ -1,0 +1,19 @@
+# App exits immediately because a required env var is missing (from scenario-1-crashloop)
+apiVersion: v1
+kind: Pod
+metadata:
+  name: crashloop-app
+spec:
+  containers:
+    - name: python-app
+      image: python:3.11-alpine3.19
+      command: ["python3", "-c"]
+      args:
+        - |
+          import os, sys, time
+          db_url = os.environ.get("DATABASE_URL")
+          if not db_url:
+              print("[FATAL ERROR]: DATABASE_URL environment variable is MISSING!", file=sys.stderr)
+              sys.exit(1)
+          print(f"Application started successfully! DB={db_url}")
+          time.sleep(3600)

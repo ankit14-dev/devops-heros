@@ -1,0 +1,25 @@
+# The real database lives in namespace "data" as service "postgres-db"
+apiVersion: v1
+kind: Namespace
+metadata: {name: data}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: postgres-db, namespace: data}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: postgres-db}}
+  template:
+    metadata: {labels: {app: postgres-db}}
+    spec:
+      containers:
+        - name: db
+          image: nginx:1.27          # stand-in for a DB (we only test DNS + TCP)
+          ports: [{containerPort: 80}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: postgres-db, namespace: data}
+spec:
+  selector: {app: postgres-db}
+  ports: [{port: 5432, targetPort: 80}]

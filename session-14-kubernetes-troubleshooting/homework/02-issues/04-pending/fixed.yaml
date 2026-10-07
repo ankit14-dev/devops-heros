@@ -1,0 +1,13 @@
+# FIXED: realistic requests that fit on the node
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pending-app
+spec:
+  containers:
+    - name: hungry-app
+      image: nginx:alpine
+      resources:
+        requests:
+          cpu: "100m"
+          memory: "64Mi"

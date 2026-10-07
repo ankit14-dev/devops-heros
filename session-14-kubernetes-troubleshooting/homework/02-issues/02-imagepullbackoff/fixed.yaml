@@ -1,0 +1,9 @@
+# FIXED: valid image tag
+apiVersion: v1
+kind: Pod
+metadata:
+  name: imagepull-app
+spec:
+  containers:
+    - name: app
+      image: nginx:1.27   # FIX: a tag that exists

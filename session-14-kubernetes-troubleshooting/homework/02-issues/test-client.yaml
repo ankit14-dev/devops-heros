@@ -1,0 +1,10 @@
+# Long-running client pod used to test Services/pods from inside the cluster
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-client
+spec:
+  containers:
+    - name: curl
+      image: curlimages/curl:8.5.0
+      command: ["sleep", "infinity"]

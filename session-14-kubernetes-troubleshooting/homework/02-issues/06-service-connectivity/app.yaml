@@ -1,0 +1,14 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shop-api
+spec:
+  replicas: 2
+  selector: {matchLabels: {app: shop-api}}
+  template:
+    metadata: {labels: {app: shop-api}}
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.27
+          ports: [{containerPort: 80}]

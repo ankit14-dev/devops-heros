@@ -1,0 +1,11 @@
+# FIX: create the ConfigMap the pod is waiting for (the pod itself does not need to change)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-site-config
+data:
+  default.conf: |
+    server {
+      listen 80;
+      location / { return 200 "config loaded from ConfigMap\n"; }
+    }

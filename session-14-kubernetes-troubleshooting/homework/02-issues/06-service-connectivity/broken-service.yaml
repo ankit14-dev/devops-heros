@@ -1,0 +1,10 @@
+# Service points to the wrong container port (app listens on 80, not 8080)
+apiVersion: v1
+kind: Service
+metadata:
+  name: shop-api
+spec:
+  selector: {app: shop-api}
+  ports:
+    - port: 80
+      targetPort: 8080
