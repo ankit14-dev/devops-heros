@@ -52,7 +52,9 @@ kubectl exec emptydir-demo -c web -- tail -n 3 /usr/share/nginx/html/index.html
 kubectl delete pod emptydir-demo     # the data is gone with the Pod
 ```
 
-<!-- REAL-OUTPUT: kubectl apply + kubectl exec emptydir-demo -c web -- tail index.html (timestamps written by the writer container) -->
+**Real output** ([`emptydir-pod.yaml`](emptydir-pod.yaml)). The `writer` container appends a timestamp every 5 s, and the `web` (nginx) container serves the **same files** through the shared emptyDir. After deleting and re-creating the pod, the file starts again from **1 line**: emptyDir data lives only as long as the pod.
+
+![emptydir](../screenshots/01-emptydir.png)
 
 ---
 
@@ -102,7 +104,9 @@ kubectl exec hostpath-demo -- sh -c 'echo "hello from pod" > /data/test.txt'
 minikube ssh -- cat /tmp/hostpath-data/test.txt    # same file, seen from the node
 ```
 
-<!-- REAL-OUTPUT: kubectl apply hostpath-demo + minikube ssh cat /tmp/hostpath-data/test.txt -->
+**Real output** ([`hostpath-pod.yaml`](hostpath-pod.yaml)). A file written in the pod shows up on the **minikube node** at `/tmp/hostpath-data` and is still there after the pod is deleted. It's tied to that one node, though.
+
+![hostpath](../screenshots/02-hostpath.png)
 
 ---
 
@@ -194,8 +198,12 @@ kubectl delete pod pvc-pod && kubectl apply -f pvc-and-pod.yaml   # new Pod, sam
 kubectl exec pvc-pod -- cat /usr/share/nginx/html/index.html
 ```
 
-<!-- REAL-OUTPUT: kubectl get pv,pvc (STATUS Bound, CLAIM default/student-pvc) and data surviving pod deletion -->
-<!-- REAL-OUTPUT: kubectl delete pvc student-pvc; kubectl get pv (STATUS Released because of Retain) -->
+**Real output** ([`static-pv.yaml`](static-pv.yaml), [`static-pvc-and-pod.yaml`](static-pvc-and-pod.yaml)). The PV starts `Available`, becomes `Bound` to `default/student-pvc` (matched on `storageClassName: manual`, size and access mode), and the data written by the first pod is read back by a **new pod**:
+
+![pv pvc](../screenshots/03-static-pv-pvc.png)
+After deleting the claim, the PV goes to **`Released`** (not deleted) because of `persistentVolumeReclaimPolicy: Retain`, and the data is still on the node's disk. It can't be re-bound until an admin cleans it up:
+
+![retain](../screenshots/04-pv-retain.png)
 
 ---
 
@@ -218,7 +226,11 @@ kubectl get storageclass
 kubectl get storageclass standard -o yaml
 ```
 
-<!-- REAL-OUTPUT: kubectl get storageclass (standard (default), PROVISIONER k8s.io/minikube-hostpath, RECLAIMPOLICY Delete, VOLUMEBINDINGMODE Immediate) -->
+**Real output from minikube.** `standard` is the **default** class, provisioner `k8s.io/minikube-hostpath`, reclaim policy `Delete`, binding mode `Immediate`. The provisioner itself runs as the `storage-provisioner` pod:
+
+![sc](../screenshots/05-storageclass.png)
+
+(The `fast-ssd` example above is the AWS EBS version, kept in [`storageclass-example.yaml`](storageclass-example.yaml) for reference. It needs the EBS CSI driver, so I didn't apply it on minikube.)
 
 Its `provisioner` is `k8s.io/minikube-hostpath`, which creates directories on the minikube node under `/tmp/hostpath-provisioner/<namespace>/<pvc-name>`. A cloud-style example:
 
@@ -289,7 +301,9 @@ kubectl delete pvc dynamic-pvc
 kubectl get pv            # gone too, because reclaimPolicy is Delete
 ```
 
-<!-- REAL-OUTPUT: kubectl get pvc,pv after applying dynamic-pvc (auto-created pvc-<uid> PV) and after deleting it -->
+**Real output** ([`dynamic-pvc.yaml`](dynamic-pvc.yaml)). There are no PVs at first. Creating only the **PVC** made the provisioner create `pvc-76522fd7-…` automatically (events `ExternalProvisioning → Provisioning → ProvisioningSucceeded`). Deleting the PVC also deleted the PV (`reclaimPolicy: Delete`):
+
+![dynamic](../screenshots/06-dynamic-provisioning.png)
 
 ---
 

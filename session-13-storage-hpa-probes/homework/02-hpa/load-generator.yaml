@@ -1,0 +1,27 @@
+# Load generator: 3 pods x 20 parallel request loops hammering the hpa-demo Service.
+# Scale it to 0 (or delete it) to remove the load.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: load-generator
+spec:
+  replicas: 3
+  selector:
+    matchLabels: {app: load-generator}
+  template:
+    metadata:
+      labels: {app: load-generator}
+    spec:
+      containers:
+        - name: load
+          image: busybox:1.36
+          command: ["sh", "-c"]
+          args:
+            - |
+              echo "sending traffic to http://hpa-demo-service ..."
+              for i in $(seq 1 20); do
+                (while true; do wget -q -O /dev/null http://hpa-demo-service; done) &
+              done
+              wait
+          resources:
+            requests: {cpu: 50m}
