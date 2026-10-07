@@ -52,7 +52,9 @@ spec:
             - name: data
               mountPath: /var/lib/postgresql/data
   volumeClaimTemplates:
-    - metadata:
+    - apiVersion: v1                 # written out explicitly: the API server adds these fields
+      kind: PersistentVolumeClaim    # and Argo CD would otherwise report a permanent diff
+      metadata:
         name: data
       spec:
         accessModes: ["ReadWriteOnce"]
