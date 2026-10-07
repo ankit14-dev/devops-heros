@@ -70,7 +70,7 @@ A failure at any stage **stops everything after it** (`needs:`), so broken code 
 ### Secrets
 
 - `secrets.GITHUB_TOKEN` is created **automatically for every run**. I use it to log in to GHCR, with `permissions: packages: write` granted only to the `push-image` job (least privilege).
-- `secrets.DEMO_API_KEY` is a **repository secret** (Settings → Secrets and variables → Actions). It's passed to the step as an env var, and GitHub **masks** the value as `***` in the logs. The step handles the case where the secret isn't configured.
+- `secrets.DEMO_API_KEY` is an optional **repository secret** (Settings → Secrets and variables → Actions → New repository secret). It's passed to the step as an env var, and GitHub **masks** the value as `***` in the logs even when the step echoes it. If the secret isn't configured, the step just prints a notice and skips.
 - Secrets are never written in the YAML and are not passed to workflows triggered from forks.
 
 ### Artifacts
