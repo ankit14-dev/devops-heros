@@ -1,0 +1,14 @@
+environment: prod
+backend:
+  replicas: 3
+  autoscaling:
+    minReplicas: 3
+    maxReplicas: 10
+frontend:
+  replicas: 3
+postgresql:
+  storage:
+    size: 10Gi
+ingress:
+  host: taskboard.example.com
+  tls: true

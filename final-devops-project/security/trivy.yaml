@@ -1,0 +1,11 @@
+# Trivy configuration used by the pipeline:  trivy image --config final-devops-project/security/trivy.yaml <image>
+severity:
+  - HIGH
+  - CRITICAL
+scan:
+  scanners:
+    - vuln
+    - secret          # also look for secrets baked into image layers
+vulnerability:
+  ignore-unfixed: true  # report only CVEs that have a fix available
+format: json

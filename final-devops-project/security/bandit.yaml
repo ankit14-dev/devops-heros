@@ -1,0 +1,3 @@
+# Bandit (SAST) configuration:  bandit -c final-devops-project/security/bandit.yaml -r application/backend/app
+exclude_dirs: ["tests", "alembic"]
+skips: []          # nothing skipped - every rule is enforced

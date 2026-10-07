@@ -1,0 +1,372 @@
+# Session 21 - Final DevOps Project: TaskBoard (FastAPI + React + PostgreSQL)
+#
+#  CI: lint+test (backend, real PostgreSQL) | build frontend
+#      -> SAST (Bandit, CodeQL) | SCA (pip-audit, npm audit) | secret scan (gitleaks)
+#      -> docker build (backend, frontend) -> Trivy image scan -> SECURITY GATE
+#  CD: push images to GHCR -> deploy with Helm to a Kubernetes (kind) test cluster + helm test
+#      -> GitOps: bump image tags in final-devops-project/gitops/values-gitops.yaml (Argo CD syncs)
+name: "Final Project - TaskBoard CI/CD"
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "final-devops-project/application/**"
+      - "final-devops-project/helm/**"
+      - "final-devops-project/security/**"
+      - ".github/workflows/final-devops-project.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "final-devops-project/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: final-devops-project-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PROJECT: final-devops-project
+  REGISTRY: ghcr.io/${{ github.repository_owner }}
+  TRIVY_VERSION: "0.75.0"
+  GITLEAKS_VERSION: "8.30.1"
+
+jobs:
+  # ===================================================================== BUILD & TEST
+  backend-test:
+    name: Backend - lint & test (PostgreSQL)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: final-devops-project/application/backend
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: taskboard_test
+          POSTGRES_USER: taskboard
+          POSTGRES_PASSWORD: ci-only-password
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U taskboard" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql+psycopg://taskboard:ci-only-password@localhost:5432/taskboard_test
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: final-devops-project/application/backend/requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      - name: Lint (ruff)
+        run: ruff check . && ruff format --check .
+      - name: Alembic migrations apply cleanly
+        run: alembic upgrade head && alembic current
+      - name: Unit + API tests against real PostgreSQL
+        run: |
+          mkdir -p reports
+          python -m pytest -v --junitxml=reports/junit.xml --cov=app --cov-report=term --cov-report=xml:reports/coverage.xml | tee reports/pytest.txt
+          {
+            echo "### 🧪 Backend tests (PostgreSQL 16)"
+            echo '```'
+            grep -E "passed|failed|TOTAL" reports/pytest.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: backend-test-reports
+          path: final-devops-project/application/backend/reports/
+
+  frontend-build:
+    name: Frontend - build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: final-devops-project/application/frontend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: final-devops-project/application/frontend/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - run: echo "### 🎨 Frontend built ($(du -sh dist | cut -f1))" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: frontend-dist
+          path: final-devops-project/application/frontend/dist/
+
+  # ===================================================================== DEVSECOPS
+  sast:
+    name: SAST - Bandit
+    needs: [backend-test, frontend-build]
+    runs-on: ubuntu-latest
+    outputs:
+      high: ${{ steps.scan.outputs.high }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install bandit==1.9.4
+      - id: scan
+        run: |
+          bandit -c $PROJECT/security/bandit.yaml -r $PROJECT/application/backend/app -f json -o bandit.json || true
+          HIGH=$(jq '[.results[] | select(.issue_severity=="HIGH")] | length' bandit.json)
+          MED=$(jq '[.results[] | select(.issue_severity=="MEDIUM")] | length' bandit.json)
+          echo "high=$HIGH" >> "$GITHUB_OUTPUT"
+          echo "::notice title=SAST (Bandit)::$HIGH high, $MED medium"
+          echo "### 🔍 SAST (Bandit): $HIGH high, $MED medium" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        with: {name: sast-report, path: bandit.json}
+
+  codeql:
+    name: SAST - CodeQL (${{ matrix.language }})
+    needs: [backend-test, frontend-build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      matrix:
+        language: [python, javascript-typescript]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          source-root: final-devops-project/application
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: final-project-${{ matrix.language }}
+
+  sca:
+    name: SCA - pip-audit & npm audit
+    needs: [backend-test, frontend-build]
+    runs-on: ubuntu-latest
+    outputs:
+      python: ${{ steps.py.outputs.vulns }}
+      node: ${{ steps.node.outputs.vulns }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+      - id: py
+        run: |
+          pip install pip-audit==2.10.1
+          pip-audit -r $PROJECT/application/backend/requirements.txt -f json -o pip-audit.json || true
+          V=$(jq '[.dependencies[].vulns[]] | length' pip-audit.json)
+          echo "vulns=$V" >> "$GITHUB_OUTPUT"
+          echo "::notice title=SCA (pip-audit)::$V vulnerable Python packages"
+      - id: node
+        working-directory: final-devops-project/application/frontend
+        run: |
+          npm audit --omit=dev --json > ../../../npm-audit.json || true
+          V=$(jq '(.metadata.vulnerabilities.high // 0) + (.metadata.vulnerabilities.critical // 0)' ../../../npm-audit.json)
+          echo "vulns=$V" >> "$GITHUB_OUTPUT"
+          echo "::notice title=SCA (npm audit)::$V high/critical advisories in production dependencies"
+      - name: Summary
+        run: |
+          echo "### 📦 SCA: python=${{ steps.py.outputs.vulns }}, node(high+critical)=${{ steps.node.outputs.vulns }}" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        with: {name: sca-reports, path: "*-audit.json"}
+
+  secret-scan:
+    name: Secret scan - gitleaks
+    needs: [backend-test, frontend-build]
+    runs-on: ubuntu-latest
+    outputs:
+      leaks: ${{ steps.scan.outputs.leaks }}
+    steps:
+      - uses: actions/checkout@v7
+      - run: |
+          curl -sSfL -o /tmp/gl.tgz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          tar -xzf /tmp/gl.tgz -C /tmp gitleaks && sudo install /tmp/gitleaks /usr/local/bin/
+      - id: scan
+        run: |
+          gitleaks dir $PROJECT --config $PROJECT/security/.gitleaks.toml --no-banner --redact -f json -r gitleaks.json || true
+          L=$(jq 'length' gitleaks.json)
+          echo "leaks=$L" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Secret scan (gitleaks)::$L secrets found"
+      - uses: actions/upload-artifact@v7
+        with: {name: secret-scan-report, path: gitleaks.json}
+
+  docker-build:
+    name: Docker build - ${{ matrix.component }}
+    needs: [sast, codeql, sca, secret-scan]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        component: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build image
+        run: |
+          IMG=taskboard-${{ matrix.component }}:${GITHUB_SHA::7}
+          docker build -t $IMG $PROJECT/application/${{ matrix.component }}
+          docker save $IMG | gzip > image-${{ matrix.component }}.tar.gz
+          echo "### 🐳 Built \`$IMG\` ($(docker image inspect $IMG --format '{{.Size}}' | numfmt --to=iec))" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: image-${{ matrix.component }}
+          path: image-${{ matrix.component }}.tar.gz
+          retention-days: 3
+
+  image-scan:
+    name: Trivy - ${{ matrix.component }}
+    needs: docker-build
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        component: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with: {name: "image-${{ matrix.component }}"}
+      - run: gunzip -c image-${{ matrix.component }}.tar.gz | docker load
+      - run: |
+          curl -sSfL -o /tmp/t.tgz "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          tar -xzf /tmp/t.tgz -C /tmp trivy && sudo install /tmp/trivy /usr/local/bin/
+      - name: Scan image
+        run: |
+          IMG=taskboard-${{ matrix.component }}:${GITHUB_SHA::7}
+          trivy image --quiet --config $PROJECT/security/trivy.yaml -o trivy-${{ matrix.component }}.json $IMG
+          C=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' trivy-${{ matrix.component }}.json)
+          H=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' trivy-${{ matrix.component }}.json)
+          S=$(jq '[.Results[]?.Secrets[]?] | length' trivy-${{ matrix.component }}.json)
+          echo "::notice title=Trivy (${{ matrix.component }})::$C critical, $H high fixable CVEs, $S secrets"
+          echo "### 🛡️ Trivy ${{ matrix.component }}: $C critical, $H high (fixable), $S secrets" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: trivy-${{ matrix.component }}
+          path: trivy-${{ matrix.component }}.json
+
+  security-gate:
+    name: Security gate
+    needs: [sast, sca, secret-scan, image-scan]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: trivy-*
+          merge-multiple: true
+      - name: Evaluate policy (see final-devops-project/security/security-gate-policy.md)
+        env:
+          SAST_HIGH: ${{ needs.sast.outputs.high }}
+          PY_VULNS: ${{ needs.sca.outputs.python }}
+          NODE_VULNS: ${{ needs.sca.outputs.node }}
+          LEAKS: ${{ needs.secret-scan.outputs.leaks }}
+        run: |
+          IMG_CRIT=$(cat trivy-*.json | jq -s '[.[].Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length')
+          IMG_SECRETS=$(cat trivy-*.json | jq -s '[.[].Results[]?.Secrets[]?] | length')
+          FAIL=0
+          row() {
+            if [ "$2" -gt 0 ]; then echo "| ❌ $1 | $2 |"; echo "::error title=Security gate - FAIL::$1: $2"; FAIL=1
+            else echo "| ✅ $1 | 0 |"; echo "::notice title=Security gate - pass::$1: 0"; fi
+          }
+          {
+            echo "## 🚦 Security gate"; echo "| Check | Findings |"; echo "|---|---|"
+            row "SAST high (Bandit)" "$SAST_HIGH"
+            row "Vulnerable Python deps (pip-audit)" "$PY_VULNS"
+            row "High/critical npm advisories" "$NODE_VULNS"
+            row "Secrets in source (gitleaks)" "$LEAKS"
+            row "Fixable CRITICAL image CVEs (Trivy)" "$IMG_CRIT"
+            row "Secrets in images (Trivy)" "$IMG_SECRETS"
+          } > gate.md
+          grep '^|' gate.md >> "$GITHUB_STEP_SUMMARY"; grep '^::' gate.md
+          if grep -q '❌' gate.md; then echo "::error::Security gate FAILED"; exit 1; fi
+
+  # ===================================================================== DELIVERY
+  push-images:
+    name: Push images (GHCR)
+    needs: security-gate
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        component: [backend, frontend]
+    steps:
+      - uses: actions/download-artifact@v8
+        with: {name: "image-${{ matrix.component }}"}
+      - run: gunzip -c image-${{ matrix.component }}.tar.gz | docker load
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - run: |
+          SRC=taskboard-${{ matrix.component }}:${GITHUB_SHA::7}
+          DST=$REGISTRY/taskboard-${{ matrix.component }}
+          docker tag $SRC $DST:${GITHUB_SHA::7} && docker tag $SRC $DST:latest
+          docker push $DST:${GITHUB_SHA::7} && docker push $DST:latest
+          echo "### 📦 \`$DST:${GITHUB_SHA::7}\`" >> "$GITHUB_STEP_SUMMARY"
+
+  deploy-test-cluster:
+    name: Deploy with Helm to Kubernetes (kind) + helm test
+    needs: push-images
+    runs-on: ubuntu-latest
+    environment:
+      name: ci-kind
+    steps:
+      - uses: actions/checkout@v7
+      - uses: helm/kind-action@v1.15.1
+        with:
+          cluster_name: taskboard-ci
+      - uses: azure/setup-helm@v5
+      - name: helm upgrade --install
+        run: |
+          TAG=${GITHUB_SHA::7}
+          helm upgrade --install taskboard $PROJECT/helm/taskboard -n taskboard --create-namespace \
+            -f $PROJECT/helm/taskboard/values-dev.yaml \
+            --set backend.image.tag=$TAG --set frontend.image.tag=$TAG \
+            --set ingress.enabled=false --wait --timeout 8m
+          kubectl -n taskboard get deploy,sts,pods,svc,pvc
+      - name: helm test (in-cluster smoke tests)
+        run: helm test taskboard -n taskboard --logs
+      - name: End-to-end check through the frontend
+        run: |
+          kubectl -n taskboard port-forward svc/taskboard-frontend 8080:80 >/dev/null 2>&1 &
+          sleep 5
+          curl -fsS -X POST localhost:8080/api/tasks -H 'Content-Type: application/json' -d '{"title":"created by CI"}'
+          echo
+          STATS=$(curl -fsS localhost:8080/api/tasks/stats)
+          echo "$STATS" | jq -e '.total >= 1'
+          {
+            echo "## ☸️ Deployed to kind with Helm"
+            echo '```'; kubectl -n taskboard get pods; echo '```'
+            echo "Stats via frontend → backend → PostgreSQL: \`$STATS\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  gitops-update:
+    name: GitOps - bump image tags (Argo CD syncs)
+    needs: deploy-test-cluster
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Update values-gitops.yaml with the new image tag
+        run: |
+          TAG=${GITHUB_SHA::7}
+          F=$PROJECT/gitops/values-gitops.yaml
+          sed -i -E "s/^(    tag: ).*(# managed by CI)$/\1${TAG}          \2/" $F
+          git diff --stat
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "gitops: deploy taskboard ${TAG} [skip ci]" || { echo "nothing to update"; exit 0; }
+          git push
+          echo "### 🔁 GitOps: values-gitops.yaml now points to \`${TAG}\` - Argo CD will sync it" >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "taskboard.fullname" . }}-backend
+  labels: {{- include "taskboard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend
+spec:
+  {{- if not .Values.backend.autoscaling.enabled }}
+  replicas: {{ .Values.backend.replicas }}
+  {{- end }}
+  selector:
+    matchLabels: {{- include "taskboard.selector" (dict "root" . "component" "backend") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "taskboard.labels" . | nindent 8 }}
+        app.kubernetes.io/component: backend
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+      initContainers:
+        - name: wait-for-db      # avoid crash-restarts while PostgreSQL is still starting
+          image: {{ .Values.postgresql.image }}
+          command: ["sh", "-c", "until pg_isready -h $(POSTGRES_HOST) -U $(POSTGRES_USER); do echo waiting for database; sleep 2; done"]
+          envFrom:
+            - configMapRef: {name: {{ include "taskboard.fullname" . }}-config}
+          securityContext:
+            allowPrivilegeEscalation: false
+      containers:
+        - name: backend
+          image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}"
+          imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+          ports:
+            - {name: http, containerPort: {{ .Values.backend.port }}}
+          envFrom:
+            - configMapRef: {name: {{ include "taskboard.fullname" . }}-config}
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom: {secretKeyRef: {name: {{ include "taskboard.secretName" . }}, key: postgres-password}}
+            - name: DATABASE_URL   # $(VAR) is expanded by Kubernetes from the env vars above
+              value: "postgresql+psycopg://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(POSTGRES_HOST):5432/$(POSTGRES_DB)"
+          startupProbe:          # alembic migrations run before uvicorn starts
+            httpGet: {path: /health, port: http}
+            periodSeconds: 3
+            failureThreshold: 40
+          readinessProbe:        # /ready also checks the database connection
+            httpGet: {path: /ready, port: http}
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 10
+            failureThreshold: 3
+          resources: {{- toYaml .Values.backend.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "taskboard.fullname" . }}-backend
+  labels: {{- include "taskboard.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend
+spec:
+  selector: {{- include "taskboard.selector" (dict "root" . "component" "backend") | nindent 4 }}
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http

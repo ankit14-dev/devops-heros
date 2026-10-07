@@ -1,0 +1,31 @@
+# Argo CD Application: deploys the Helm chart with the CI-managed values from Git.
+# Multi-source: source 1 = chart, source 2 = this repo as "$values" (for values-gitops.yaml)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: taskboard
+  namespace: argocd
+spec:
+  project: default
+  sources:
+    - repoURL: https://github.com/ankit14-dev/devops-heros.git
+      targetRevision: main
+      path: final-devops-project/helm/taskboard
+      helm:
+        releaseName: taskboard
+        valueFiles:
+          - values.yaml
+          - $values/final-devops-project/gitops/values-gitops.yaml
+    - repoURL: https://github.com/ankit14-dev/devops-heros.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: taskboard
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

@@ -1,0 +1,9 @@
+apiVersion: v2
+name: taskboard
+description: TaskBoard (FastAPI + React + PostgreSQL) - Session 21 final DevOps project by Ankit Kumar
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+maintainers:
+  - name: Ankit Kumar
+    url: https://github.com/ankit14-dev

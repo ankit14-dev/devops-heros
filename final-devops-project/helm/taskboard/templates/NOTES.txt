@@ -1,0 +1,5 @@
+TaskBoard {{ .Values.backend.image.tag }} deployed to namespace {{ .Release.Namespace }} ({{ .Values.environment }}).
+{{- if .Values.ingress.enabled }}
+Open: http://{{ .Values.ingress.host }}/
+{{- end }}
+Run the smoke tests:  helm test {{ .Release.Name }} -n {{ .Release.Namespace }}

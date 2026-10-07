@@ -1,0 +1,10 @@
+# gitleaks configuration: default rules + project allowlist
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Files that are allowed to contain example credentials"
+paths = [
+  '''application/backend/\.env\.example''',
+  '''docker/docker-compose\.yml''',      # only a local-dev fallback password (taskboard-local)
+]

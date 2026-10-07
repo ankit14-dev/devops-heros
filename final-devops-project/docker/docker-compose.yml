@@ -1,0 +1,42 @@
+# Full local stack: PostgreSQL + FastAPI backend + React/nginx frontend
+# Usage (from this folder):  docker compose up -d --build   ->  http://localhost:3000
+name: taskboard
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: taskboard
+      POSTGRES_USER: taskboard
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-taskboard-local}   # override via .env, never commit real ones
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U taskboard -d taskboard"]
+      interval: 5s
+      retries: 10
+
+  backend:
+    build: ../application/backend
+    image: taskboard-backend:local
+    environment:
+      DATABASE_URL: postgresql+psycopg://taskboard:${POSTGRES_PASSWORD:-taskboard-local}@postgres:5432/taskboard
+      ENVIRONMENT: docker-compose
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build: ../application/frontend
+    image: taskboard-frontend:local
+    environment:
+      BACKEND_URL: http://backend:8000
+    depends_on:
+      - backend
+    ports:
+      - "3000:8080"
+
+volumes:
+  postgres-data:

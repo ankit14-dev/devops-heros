@@ -1,0 +1,22 @@
+# Environment values for the GitOps-managed deployment (Argo CD).
+# The image tags below are updated AUTOMATICALLY by the CI pipeline (job "gitops-update")
+# after a successful build + security gate + test deployment. Argo CD then syncs the cluster.
+environment: gitops-minikube
+backend:
+  image:
+    tag: latest          # managed by CI
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 5
+frontend:
+  image:
+    tag: latest          # managed by CI
+  replicas: 2
+ingress:
+  host: taskboard.192.168.49.2.nip.io
+postgresql:
+  # created once by hand (never stored in Git):
+  #   kubectl -n taskboard create secret generic taskboard-db-credentials \
+  #     --from-literal=postgres-password="$(openssl rand -base64 24)"
+  existingSecret: taskboard-db-credentials

@@ -1,0 +1,9 @@
+environment: dev
+backend:
+  replicas: 1
+  autoscaling:
+    enabled: false
+frontend:
+  replicas: 1
+ingress:
+  host: taskboard.192.168.49.2.nip.io
