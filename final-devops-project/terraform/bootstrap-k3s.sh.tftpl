@@ -1,0 +1,47 @@
+#!/bin/bash
+# First-boot script (cloud-init): swap -> k3s -> helm -> TaskBoard chart from GitHub, images from GHCR.
+set -euxo pipefail
+exec > >(tee /var/log/taskboard-bootstrap.log) 2>&1
+
+# 2 GiB swap so a 1 GiB t3.micro can run k3s + PostgreSQL + the app
+fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
+echo '/swapfile none swap sw 0 0' >> /etc/fstab
+
+apt-get update -y && apt-get install -y git curl unzip postgresql-client
+
+# single-node Kubernetes (k3s ships Traefik ingress, CoreDNS, local-path storage, metrics-server)
+curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--write-kubeconfig-mode 644" sh -
+export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+until kubectl get nodes | grep -q " Ready"; do sleep 5; done
+
+curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+git clone --depth 1 --branch ${git_ref} https://github.com/ankit14-dev/devops-heros.git /opt/devops-heros
+PUBLIC_IP=$(curl -s -H "X-aws-ec2-metadata-token: $(curl -s -X PUT http://169.254.169.254/latest/api/token -H 'X-aws-ec2-metadata-token-ttl-seconds: 60')" http://169.254.169.254/latest/meta-data/public-ipv4)
+
+kubectl create namespace taskboard
+kubectl -n taskboard create secret generic taskboard-db-credentials \
+  --from-literal=postgres-password="$(openssl rand -base64 24)"
+
+helm upgrade --install taskboard /opt/devops-heros/final-devops-project/helm/taskboard -n taskboard \
+  -f /opt/devops-heros/final-devops-project/helm/taskboard/values-dev.yaml \
+  --set environment=aws-k3s \
+  --set backend.image.tag=${image_tag} --set frontend.image.tag=${image_tag} \
+  --set postgresql.existingSecret=taskboard-db-credentials \
+  --set ingress.className=traefik --set ingress.host=taskboard.$PUBLIC_IP.nip.io \
+  --set backend.resources.requests.memory=96Mi --set postgresql.resources.requests.memory=96Mi \
+  --wait --timeout 15m
+
+# nightly PostgreSQL backup to S3 (uses the instance role - no keys on the box)
+cat > /usr/local/bin/taskboard-backup.sh <<'BACKUP'
+#!/bin/bash
+export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+kubectl -n taskboard exec taskboard-postgres-0 -- pg_dump -U taskboard taskboard | gzip \
+  | aws s3 cp - "s3://BUCKET/taskboard-$(date +%F-%H%M).sql.gz"
+BACKUP
+sed -i "s/BUCKET/${backup_bucket}/" /usr/local/bin/taskboard-backup.sh && chmod +x /usr/local/bin/taskboard-backup.sh
+curl -sSL https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o /tmp/awscli.zip && unzip -q /tmp/awscli.zip -d /tmp && /tmp/aws/install
+echo "0 2 * * * root /usr/local/bin/taskboard-backup.sh" > /etc/cron.d/taskboard-backup
+/usr/local/bin/taskboard-backup.sh
+
+echo "TASKBOARD READY at http://taskboard.$PUBLIC_IP.nip.io/"

@@ -1,0 +1,29 @@
+#!/bin/bash
+# Runs once at first boot: install nginx + AWS CLI, build a page with instance metadata and a line read from S3.
+set -euxo pipefail
+apt-get update -y
+apt-get install -y nginx unzip curl
+curl -sSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscli.zip
+unzip -q /tmp/awscli.zip -d /tmp && /tmp/aws/install
+
+TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 300")
+md() { curl -s -H "X-aws-ec2-metadata-token: $TOKEN" "http://169.254.169.254/latest/meta-data/$1"; }
+MSG=$(aws s3 cp "s3://${bucket}/site/message.txt" - || echo "could not read S3")
+
+cat > /var/www/html/index.html <<HTML
+<!doctype html><html><head><title>${name}</title>
+<style>body{font-family:sans-serif;max-width:760px;margin:60px auto;line-height:1.6}td{padding:4px 12px}</style></head>
+<body>
+<h1>Hello from Terraform on AWS! &#x1F680;</h1>
+<p>Session 19 &ndash; DevOps Heros &ndash; Ankit Kumar</p>
+<table>
+<tr><td>Instance ID</td><td>$(md instance-id)</td></tr>
+<tr><td>Instance type</td><td>$(md instance-type)</td></tr>
+<tr><td>Availability zone</td><td>$(md placement/availability-zone)</td></tr>
+<tr><td>Private IP</td><td>$(md local-ipv4)</td></tr>
+<tr><td>Public IP</td><td>$(md public-ipv4)</td></tr>
+<tr><td>From S3 (${bucket})</td><td>$MSG</td></tr>
+</table>
+</body></html>
+HTML
+systemctl enable --now nginx
