@@ -4,7 +4,7 @@ metadata:
   name: podinfo
   labels: {app: podinfo}
 spec:
-  replicas: 2
+  replicas: 3
   selector:
     matchLabels: {app: podinfo}
   template:
@@ -18,9 +18,9 @@ spec:
             - {name: http, containerPort: 9898}
           env:
             - name: PODINFO_UI_MESSAGE
-              value: "Deployed by Argo CD from Git - version 1"
+              value: "Deployed by Argo CD from Git - version 2 (changed only in Git!)"
             - name: PODINFO_UI_COLOR
-              value: "#34577c"
+              value: "#2e7d32"
           readinessProbe:
             httpGet: {path: /readyz, port: 9898}
           resources:
