@@ -1,0 +1,28 @@
+grafana:
+  adminPassword: devops-heros-demo   # local minikube demo only
+  service:
+    type: NodePort
+    nodePort: 30300
+prometheus:
+  service:
+    type: NodePort
+    nodePort: 30900
+  prometheusSpec:
+    retention: 2d
+    # pick up ServiceMonitors / PrometheusRules from every namespace, not only this release's
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+alertmanager:
+  service:
+    type: NodePort
+    nodePort: 30903
+grafana:
+  adminPassword: devops-heros-demo
+  service:
+    type: NodePort
+    nodePort: 30300
+  grafana.ini:
+    auth.anonymous:
+      enabled: true        # read-only viewer access for local demo screenshots
+      org_role: Viewer
