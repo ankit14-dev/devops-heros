@@ -107,4 +107,4 @@ sum(rate(http_requests_total{status!~"5.."}[30d])) / sum(rate(http_requests_tota
 
 ## Hands-on demo
 
-<!-- REAL-OUTPUT: monitoring demo -->
+The hands-on demo (Prometheus + Grafana + Alertmanager on minikube, with CPU, memory, request rate, health and a firing alert) is in [`README.md`](README.md#task-1--monitoring-demo).

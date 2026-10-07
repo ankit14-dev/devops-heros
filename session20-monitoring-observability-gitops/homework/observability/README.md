@@ -129,7 +129,11 @@ helm repo add prometheus-community https://prometheus-community.github.io/helm-c
 helm install monitoring prometheus-community/kube-prometheus-stack -n monitoring --create-namespace
 ```
 
-<!-- REAL-OUTPUT: kubectl top / kube-prometheus-stack pods output -->
+**Real output from my minikube.** kube-prometheus-stack is running (Prometheus, Alertmanager, Grafana, kube-state-metrics, node-exporter and the operator), and my demo app is scraped through a `ServiceMonitor`. Full demo: [`../README.md`](../README.md#task-1--monitoring-demo).
+
+![stack](../screenshots/01-monitoring-stack.png)
+
+![targets](../screenshots/02-prometheus-targets.png)
 
 ### What to measure: Golden signals, RED and USE
 

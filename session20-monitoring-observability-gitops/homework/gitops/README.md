@@ -162,7 +162,16 @@ argocd app history gitops-demo
 
 ## Hands-on demo
 
-<!-- REAL-OUTPUT: argocd demo -->
+Full walkthrough with screenshots in [`../README.md`](../README.md#task-3--gitops-demo-argo-cd). Summary:
+
+1. Argo CD v3.5.4 installed with Helm (`argo/argo-cd`) on minikube.
+2. Applied [`argocd-application.yaml`](argocd-application.yaml). Argo CD cloned **my GitHub repo** and deployed [`app/`](app): **Synced / Healthy** at commit `30fb31c`.
+3. Changed **only Git** (2 → 3 replicas, new message) and pushed commit `699bc66`. With **no `kubectl apply`**, Argo CD picked it up on its next poll (101 s) and rolled it out.
+4. **Self-heal:** `kubectl scale --replicas=1` was reverted to 3 within 2 s, and a manually deleted Service was recreated.
+
+![argo v1](../screenshots/13-argocd-ui-v1.png)
+![git change](../screenshots/15-gitops-git-change.png)
+![self heal](../screenshots/17-gitops-self-heal.png)
 
 ## What I learned
 
