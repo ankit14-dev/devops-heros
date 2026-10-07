@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: taskboard-k8s
+  labels: {app: backend}
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: backend}
+  template:
+    metadata:
+      labels: {app: backend}
+    spec:
+      securityContext: {runAsNonRoot: true, runAsUser: 10001}
+      initContainers:
+        - name: wait-for-db
+          image: postgres:16-alpine
+          command: ["sh", "-c", "until pg_isready -h postgres -U taskboard; do sleep 2; done"]
+      containers:
+        - name: backend
+          image: ghcr.io/ankit14-dev/taskboard-backend:latest
+          ports: [{name: http, containerPort: 8000}]
+          envFrom:
+            - configMapRef: {name: taskboard-config}
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom: {secretKeyRef: {name: taskboard-db, key: postgres-password}}
+            - name: DATABASE_URL
+              value: "postgresql+psycopg://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(POSTGRES_HOST):5432/$(POSTGRES_DB)"
+          # ---- probes ----
+          startupProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 3
+            failureThreshold: 40
+          readinessProbe:
+            httpGet: {path: /ready, port: http}     # checks the DB connection too
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: ["ALL"]}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: taskboard-k8s
+spec:
+  selector: {app: backend}
+  ports: [{name: http, port: 8000, targetPort: http}]

@@ -29,3 +29,10 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+  # The API server adds a "status" block to StatefulSet volumeClaimTemplates; ignore it so the
+  # app does not show as permanently OutOfSync.
+  ignoreDifferences:
+    - group: apps
+      kind: StatefulSet
+      jqPathExpressions:
+        - .spec.volumeClaimTemplates[]?.status

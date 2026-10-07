@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: taskboard-k8s
+  labels: {app: frontend}
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: frontend}
+  template:
+    metadata:
+      labels: {app: frontend}
+    spec:
+      containers:
+        - name: frontend
+          image: ghcr.io/ankit14-dev/taskboard-frontend:latest
+          ports: [{name: http, containerPort: 8080}]
+          env:
+            - name: BACKEND_URL
+              value: "http://backend:8000"
+          readinessProbe:
+            httpGet: {path: /healthz, port: http}
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+          resources:
+            requests: {cpu: 20m, memory: 32Mi}
+            limits: {cpu: 200m, memory: 64Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: taskboard-k8s
+spec:
+  selector: {app: frontend}
+  ports: [{name: http, port: 80, targetPort: http}]
