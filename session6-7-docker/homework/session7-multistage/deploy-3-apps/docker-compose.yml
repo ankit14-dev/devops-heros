@@ -1,0 +1,25 @@
+# Session 7 - Task 3: deploy 3 different types of applications with Docker
+# Re-uses the Session 6 app folders as build contexts.
+name: session7-apps
+
+services:
+  node-app:
+    build: ../../session6-hello-world/nodejs-app
+    image: s7-node-app:1.0
+    ports:
+      - "9001:3000"
+    restart: unless-stopped
+
+  python-app:
+    build: ../../session6-hello-world/python-app
+    image: s7-python-app:1.0
+    ports:
+      - "9002:5000"
+    restart: unless-stopped
+
+  java-app:
+    build: ../../session6-hello-world/java-app
+    image: s7-java-app:1.0
+    ports:
+      - "9003:8080"
+    restart: unless-stopped
