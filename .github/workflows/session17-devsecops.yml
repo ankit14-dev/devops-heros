@@ -87,6 +87,9 @@ jobs:
           MED=$(jq '[.results[] | select(.issue_severity=="MEDIUM")] | length' reports/bandit.json)
           echo "high=$HIGH" >> "$GITHUB_OUTPUT"
           echo "medium=$MED" >> "$GITHUB_OUTPUT"
+          # annotations are visible on the run page (no sign-in needed)
+          jq -r '.results[] | select(.issue_severity!="LOW") | "::warning file='"$APP_DIR"'/\(.filename),line=\(.line_number),title=Bandit \(.test_id) (\(.issue_severity))::\(.issue_text)"' reports/bandit.json
+          echo "::notice title=SAST (Bandit)::$HIGH high, $MED medium severity findings"
           {
             echo "### 🔍 SAST (Bandit): $HIGH high, $MED medium"
             echo "| Severity | Test | Location | Issue |"
@@ -136,6 +139,7 @@ jobs:
           pip-audit -r requirements.txt -f json -o reports/pip-audit.json || true
           VULNS=$(jq '[.dependencies[].vulns[]] | length' reports/pip-audit.json)
           echo "vulns=$VULNS" >> "$GITHUB_OUTPUT"
+          echo "::notice title=SCA (pip-audit)::$VULNS known vulnerabilities in $(jq '.dependencies | length' reports/pip-audit.json) dependencies"
           {
             echo "### 📦 SCA (pip-audit): $VULNS known vulnerabilities"
             echo '```'
@@ -168,6 +172,7 @@ jobs:
           gitleaks dir . --no-banner --redact -f json -r reports/gitleaks.json || true
           LEAKS=$(jq 'length' reports/gitleaks.json)
           echo "leaks=$LEAKS" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Secret scan (gitleaks)::$LEAKS secrets found"
           echo "### 🔑 Secret scan (gitleaks): $LEAKS secrets found" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v7
         with:
@@ -223,6 +228,7 @@ jobs:
           HIGH=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH")] | length' reports/trivy.json)
           echo "critical=$CRIT" >> "$GITHUB_OUTPUT"
           echo "high=$HIGH" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Image scan (Trivy)::$CRIT critical, $HIGH high fixable vulnerabilities"
           {
             echo "### 🐳 Image scan (Trivy): $CRIT critical, $HIGH high (fixable)"
             echo "| Severity | Package | Installed | Fixed | CVE |"
@@ -250,7 +256,10 @@ jobs:
         run: |
           # Policy: block on any HIGH SAST finding, any vulnerable dependency,
           # any leaked secret, or any fixable CRITICAL vulnerability in the image.
-          check() { if [ "$2" -gt 0 ]; then echo "| ❌ $1 | $2 | FAIL |"; FAILED=1; else echo "| ✅ $1 | $2 | pass |"; fi; }
+          check() {
+            if [ "$2" -gt 0 ]; then echo "| ❌ $1 | $2 | FAIL |"; echo "::error title=Security gate - FAIL::$1: $2 finding(s)" >> /tmp/annotations
+            else echo "| ✅ $1 | $2 | pass |"; echo "::notice title=Security gate - pass::$1: 0" >> /tmp/annotations; fi
+          }
           FAILED=0
           {
             echo "## 🚦 Security Gate"
@@ -261,6 +270,7 @@ jobs:
             check "Leaked secrets (gitleaks)" "$LEAKS"
             check "Fixable CRITICAL image CVEs (Trivy)" "$IMG_CRIT"
           } | tee -a "$GITHUB_STEP_SUMMARY"
+          cat /tmp/annotations
           FAILED=$(grep -c FAIL "$GITHUB_STEP_SUMMARY" || true)
           if [ "$FAILED" -gt 0 ]; then
             echo "::error::Security gate FAILED - image will NOT be pushed or deployed"
