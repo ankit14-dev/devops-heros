@@ -1,0 +1,21 @@
+# HTTPS for yatri.local using a TLS secret (self-signed cert created with openssl, see README)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: yatri-ingress-tls
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [secure.yatri.local]
+      secretName: yatri-tls
+  rules:
+    - host: secure.yatri.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: yatri-frontend-service
+                port:
+                  number: 80

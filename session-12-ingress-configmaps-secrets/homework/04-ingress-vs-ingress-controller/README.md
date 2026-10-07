@@ -75,7 +75,9 @@ kubectl get pods -n ingress-nginx
 kubectl get ingressclass
 ```
 
-<!-- REAL-OUTPUT: kubectl get pods -n ingress-nginx; kubectl get ingressclass -->
+**Real output from my minikube.** The **controller** is the `ingress-nginx-controller` pod, and the `nginx` IngressClass is what my Ingress objects reference through `ingressClassName: nginx`. Before the addon was enabled, an Ingress object would just sit there with no ADDRESS: nothing implements it.
+
+![controller](../screenshots/07-ingress-deploy.png)
 
 ### 5.1 Path-based routing
 
@@ -177,8 +179,14 @@ spec:
 curl -k --resolve shop.local:443:$(minikube ip) https://shop.local/
 ```
 
-<!-- REAL-OUTPUT: kubectl get ingress (showing CLASS, HOSTS, ADDRESS, PORTS 80,443) and curl results -->
-<!-- REAL-OUTPUT: kubectl describe ingress app-hosts (rules and backends) -->
+**Real output** from my hands-on demo ([`../03-ingress/`](../03-ingress)). The controller filled in ADDRESS `192.168.49.2`. `/api/` goes to the backend and `/` to the frontend, and an unknown host gets a **404 from the controller's default backend**:
+
+![routing](../screenshots/08-ingress-routing.png)
+
+With TLS ([`ingress-tls.yaml`](../03-ingress/ingress-tls.yaml) + a `kubernetes.io/tls` secret) the PORTS column shows `80, 443`, the controller terminates TLS 1.3 with my certificate, and plain HTTP gets a **308 redirect** to HTTPS:
+
+![tls](../screenshots/11-ingress-tls.png)
+`kubectl describe ingress` (in the routing screenshot above) lists each host, each path and the backend **pod IPs** the controller resolved through the Services.
 
 ---
 

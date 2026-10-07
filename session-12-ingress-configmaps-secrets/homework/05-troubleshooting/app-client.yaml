@@ -1,0 +1,27 @@
+# "Application" that connects to postgres every 5s using the app's own secret.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-client
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: app-client}
+  template:
+    metadata:
+      labels: {app: app-client}
+    spec:
+      containers:
+        - name: client
+          image: postgres:16-alpine
+          command: ["sh", "-c"]
+          args:
+            - |
+              while true; do
+                psql "host=postgres user=appuser dbname=appdb connect_timeout=3" -tAc "select 'connected as ' || current_user" 2>&1
+                sleep 5
+              done
+          env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef: {name: app-db-secret, key: password}

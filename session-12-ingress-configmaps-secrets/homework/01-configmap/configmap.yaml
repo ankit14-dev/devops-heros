@@ -1,0 +1,15 @@
+# Non-sensitive app configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+data:
+  # simple key/value pairs -> become environment variables
+  APP_ENV: "staging"
+  LOG_LEVEL: "DEBUG"
+  FEATURE_NEW_UI: "true"
+  # a whole file -> mounted into the container
+  app.properties: |
+    app.name=devops-heros-demo
+    app.max_connections=50
+    app.timeout_seconds=30
