@@ -4,14 +4,14 @@
 environment: gitops-minikube
 backend:
   image:
-    tag: 6604b81          # managed by CI
+    tag: 74bcd91          # managed by CI
   autoscaling:
     enabled: true
     minReplicas: 2
     maxReplicas: 5
 frontend:
   image:
-    tag: 6604b81          # managed by CI
+    tag: 74bcd91          # managed by CI
   replicas: 2
 ingress:
   host: taskboard.192.168.49.2.nip.io
