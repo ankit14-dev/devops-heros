@@ -1,0 +1,56 @@
+# Same Service name "backend" in two namespaces to show namespace-based DNS
+apiVersion: v1
+kind: Namespace
+metadata: {name: dev}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: prod}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: backend, namespace: dev}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: backend}}
+  template:
+    metadata: {labels: {app: backend}}
+    spec:
+      containers: [{name: web, image: nginx:1.25-alpine, ports: [{containerPort: 80}]}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: backend, namespace: dev}
+spec:
+  selector: {app: backend}
+  ports: [{name: http, port: 80, targetPort: 80}]   # named port -> SRV record _http._tcp
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: backend, namespace: prod}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: backend}}
+  template:
+    metadata: {labels: {app: backend}}
+    spec:
+      containers: [{name: web, image: nginx:1.25-alpine, ports: [{containerPort: 80}]}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: backend, namespace: prod}
+spec:
+  selector: {app: backend}
+  ports: [{name: http, port: 80, targetPort: 80}]
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: dnstest, namespace: dev}
+spec:
+  containers: [{name: dnstest, image: busybox:1.28, command: ["sleep", "3600"]}]
+---
+apiVersion: v1
+kind: Pod
+metadata: {name: dnsutils, namespace: dev}
+spec:
+  containers: [{name: dnsutils, image: registry.k8s.io/e2e-test-images/jessie-dnsutils:1.3, command: ["sleep", "3600"]}]

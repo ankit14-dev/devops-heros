@@ -177,8 +177,10 @@ kubectl -n dev exec dnstest -- nslookup kube-dns.kube-system.svc.cluster.local
 kubectl -n dev exec dnstest -- wget -qO- http://backend.prod.svc.cluster.local | head -n 4
 ```
 
-<!-- REAL-OUTPUT: cat /etc/resolv.conf from the dnstest pod -->
-<!-- REAL-OUTPUT: nslookup tests from a pod (backend, backend.prod, full FQDN, kubernetes.default, kube-dns.kube-system) with matching kubectl get svc -A ClusterIPs -->
+**Real output** from my cluster ([`fqdn-demo.yaml`](fqdn-demo.yaml) creates `backend` in both `dev` and `prod` plus test pods). The pod's `/etc/resolv.conf` has `search dev.svc.cluster.local svc.cluster.local cluster.local`, `nameserver 10.96.0.10` (kube-dns) and `options ndots:5`. A short name `backend` from a pod in `dev` resolves to **dev's** backend (10.109.88.201), while `backend.prod` / the full FQDN resolve to **prod's** (10.102.174.129), matching `kubectl get svc -A`:
+
+![fqdn nslookup](../screenshots/09-fqdn-resolv-nslookup.png)
+
 
 SRV lookup (needs `dig`, e.g. the `registry.k8s.io/e2e-test-images/jessie-dnsutils:1.3` image):
 
@@ -189,7 +191,9 @@ kubectl -n dev exec dnsutils -- dig +short SRV _http._tcp.backend.dev.svc.cluste
 
 (This only returns a record if the Service port is **named**, e.g. `name: http`.)
 
-<!-- REAL-OUTPUT: dig SRV result for a Service with a named port -->
+**Real output.** The SRV record `_http._tcp.backend.dev.svc.cluster.local` returns `0 100 80 backend.dev.svc.cluster.local.` (priority 0, weight 100, **port 80**) because the port is named `http`. The pod A record `10-244-0-120.dev.pod.cluster.local` resolves back to the pod IP:
+
+![srv](../screenshots/10-fqdn-srv-pod-dns.png)
 
 Cleanup:
 

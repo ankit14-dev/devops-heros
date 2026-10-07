@@ -1,0 +1,14 @@
+# MetalLB (minikube addon, v0.9.x ConfigMap format) - gives LoadBalancer Services a real
+# external IP from the minikube Docker network (192.168.49.0/24) without `minikube tunnel`/sudo.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: config
+  namespace: metallb-system
+data:
+  config: |
+    address-pools:
+    - name: default
+      protocol: layer2
+      addresses:
+      - 192.168.49.100-192.168.49.120

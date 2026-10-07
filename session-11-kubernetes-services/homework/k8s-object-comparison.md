@@ -73,7 +73,9 @@ kubectl rollout history deploy/web
 kubectl rollout undo deploy/web --to-revision=1
 ```
 
-<!-- REAL-OUTPUT: kubectl get deploy,rs,pods -l app=web --show-labels (after one image update, showing two ReplicaSets and pod-template-hash) -->
+**Real output** (my demo in [`comparison-demo/web-deploy.yaml`](comparison-demo/web-deploy.yaml) used `nginx:1.24-alpine` → `nginx:1.25-alpine`). After one image update there are **two ReplicaSets**: the old one scaled to 0 and kept for rollback, and the new one with 3 pods. Each has its own `pod-template-hash` label:
+
+![deploy vs rs](screenshots/06-deploy-vs-rs.png)
 
 Checking the ownership chain:
 
@@ -82,7 +84,7 @@ kubectl get rs -l app=web -o jsonpath='{.items[0].metadata.ownerReferences[0].ki
 kubectl get pod <pod-name> -o jsonpath='{.metadata.ownerReferences[0].kind}/{.metadata.ownerReferences[0].name}{"\n"}'
 ```
 
-<!-- REAL-OUTPUT: ownerReferences of a ReplicaSet (-> Deployment) and of a Pod (-> ReplicaSet) -->
+The last two commands in the screenshot above show the chain: **ReplicaSet → owner `Deployment/web`** and **Pod → owner `ReplicaSet/web-644b4fb9b4`**. Deleting the Deployment garbage-collects everything below it.
 
 **My takeaway:** use a Deployment, never a bare ReplicaSet. The RS is an implementation detail the Deployment uses for versioning.
 
@@ -182,8 +184,10 @@ spec:
             storage: 1Gi
 ```
 
-<!-- REAL-OUTPUT: kubectl get sts,pods,pvc -l app=mysql (showing mysql-0/1/2 and data-mysql-N PVCs) -->
-<!-- REAL-OUTPUT: kubectl get ds -A (showing kube-proxy as a DaemonSet in kube-system) -->
+**Real output.** To save download time I used an nginx-based StatefulSet called `db` ([`comparison-demo/db-statefulset.yaml`](comparison-demo/db-statefulset.yaml)) with the same `volumeClaimTemplates` idea. The pods are created **in order** with stable names `db-0`, `db-1`, `db-2`, and each gets **its own PVC** `data-db-N`. `kubectl get ds -A` shows the cluster's DaemonSets (`kube-proxy`, `kindnet`, MetalLB `speaker`): one pod per node.
+
+![sts and ds](screenshots/07-statefulset-daemonset.png)
+
 
 ---
 
@@ -259,6 +263,8 @@ kubectl delete pod <one-backend-pod>      # RS recreates it with a new IP...
 kubectl get endpointslices -l kubernetes.io/service-name=backend   # ...and the slice updates automatically
 ```
 
-<!-- REAL-OUTPUT: kubectl get svc,endpointslices for backend, before and after deleting a Pod (new Pod IP appears in the slice, ClusterIP unchanged) -->
+**Real output** with my Session 11 ClusterIP service: I deleted one pod (`…-64pvd`, IP 10.244.0.90). The ReplicaSet created a replacement with a **new IP (10.244.0.118)**, the EndpointSlice updated automatically, and the Service **ClusterIP 10.108.157.111 stayed the same**. That is exactly why clients talk to the Service and not to pod IPs.
+
+![endpoints](screenshots/08-service-endpoints.png)
 
 **Summary:** the ReplicaSet keeps the Pods alive; the Service keeps them reachable. Labels are the only glue between the two.

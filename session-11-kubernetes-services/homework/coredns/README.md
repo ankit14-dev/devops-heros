@@ -20,7 +20,9 @@ kubectl -n kube-system get pods -l k8s-app=kube-dns -o wide
 kubectl -n kube-system get svc kube-dns
 ```
 
-<!-- REAL-OUTPUT: kubectl -n kube-system get deploy,pods,svc for coredns / kube-dns -->
+**Real output** from my minikube: the `coredns` Deployment (1 replica) sits behind the Service **`kube-dns` with ClusterIP 10.96.0.10**. The old name was kept for compatibility, and it is the `nameserver` in every pod's resolv.conf.
+
+![coredns components](../screenshots/11-coredns-components.png)
 
 ---
 
@@ -115,7 +117,9 @@ spec:
 kubectl -n kube-system get configmap coredns -o yaml
 ```
 
-<!-- REAL-OUTPUT: kubectl -n kube-system get configmap coredns -o yaml (minikube's version, which also has a hosts block for host.minikube.internal) -->
+**Real Corefile from my minikube cluster.** Besides the standard plugins it has `log` (logs every query), and a `hosts` block that maps `host.minikube.internal` to my laptop (`192.168.49.1`):
+
+![corefile](../screenshots/12-coredns-corefile.png)
 
 A typical kubeadm-style Corefile:
 
@@ -217,7 +221,15 @@ kubectl exec dnsutils -- dig @10.96.0.10 backend.default.svc.cluster.local
 
 If `kubernetes.default` works but `google.com` fails → upstream/forward problem. If both fail → CoreDNS or network path problem.
 
-<!-- REAL-OUTPUT: nslookup kubernetes.default and google.com from the dnsutils pod -->
+**Real output.** `kubernetes.default` is answered by the `kubernetes` plugin, `google.com` is forwarded upstream, and `host.minikube.internal` is answered by the `hosts` plugin. Because minikube's Corefile has the `log` plugin, the CoreDNS logs show the **ndots:5 search expansion** in action: `host.minikube.internal.dev.svc.cluster.local` → NXDOMAIN, `...svc.cluster.local` → NXDOMAIN, `...cluster.local` → NXDOMAIN, then `host.minikube.internal.` → NOERROR.
+
+![queries](../screenshots/13-coredns-queries.png)
+
+### Hands-on troubleshooting: simulating a CoreDNS outage
+
+I scaled CoreDNS to 0. Name resolution from pods failed (`can't resolve 'backend.prod'`). The checklist pointed straight at the cause: **no CoreDNS pods** and the `kube-dns` EndpointSlice had **no endpoints**. Scaling back to 1 fixed it immediately:
+
+![troubleshoot](../screenshots/14-coredns-troubleshoot.png)
 
 **Step 4 – Check the Pod's resolv.conf.**
 
