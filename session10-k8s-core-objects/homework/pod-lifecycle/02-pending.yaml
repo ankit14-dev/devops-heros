@@ -9,4 +9,4 @@ spec:
       resources:
         requests:
           cpu: "1"
-          memory: "9Gi"
+          memory: "64Gi"   # instructor used 9Gi - but my minikube node has ~15Gi allocatable, so 9Gi actually got scheduled
