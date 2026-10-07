@@ -1,0 +1,216 @@
+# Session 16 - CI/CD demo project (GitHub Actions)
+# App: session-16-github-actions/homework  (Flask calculator API)
+#
+#   lint ──► test (matrix 3.11 / 3.12) ──┬──► build-image (+ artifact) ──┬──► push-image (GHCR) ──► deploy-staging
+#                                        └──► security-check ────────────┘
+#   └──────────────── CI ──────────────────────────────────────────────────┘   └──────────── CD ───────────────┘
+name: "Session 16 - CI/CD Pipeline"
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "session-16-github-actions/homework/**"
+      - ".github/workflows/session16-cicd.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "session-16-github-actions/homework/**"
+  workflow_dispatch:          # manual "Run workflow" button
+
+env:
+  APP_DIR: session-16-github-actions/homework
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/session16-calculator
+
+defaults:
+  run:
+    working-directory: session-16-github-actions/homework
+
+jobs:
+  # ---------------------------------------------------------------- CI ----
+  lint:
+    name: Lint (flake8)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install flake8
+        run: pip install flake8==7.3.0
+
+      - name: Run flake8
+        run: flake8 app tests
+
+  test:
+    name: Unit tests (Python ${{ matrix.python-version }})
+    needs: lint
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: ${{ env.APP_DIR }}/requirements-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Run pytest with coverage
+        run: |
+          python -m pytest -v \
+            --junitxml=test-results/results.xml \
+            --cov=app --cov-report=term-missing --cov-report=xml:test-results/coverage.xml
+
+      - name: Upload test results (artifact)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-py${{ matrix.python-version }}
+          path: ${{ env.APP_DIR }}/test-results/
+          retention-days: 7
+
+  build-image:
+    name: Build Docker image
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: |
+          docker build --build-arg APP_VERSION=${GITHUB_SHA::7} \
+            -t session16-calculator:${GITHUB_SHA::7} .
+          docker images session16-calculator
+
+      - name: Smoke test the container
+        run: |
+          docker run -d --name smoke -p 5000:5000 session16-calculator:${GITHUB_SHA::7}
+          for i in $(seq 1 15); do curl -fs localhost:5000/health && break; sleep 1; done
+          echo
+          curl -fs "localhost:5000/api/add?a=2&b=3"
+          docker rm -f smoke
+
+      - name: Save image as a tarball
+        run: docker save session16-calculator:${GITHUB_SHA::7} | gzip > session16-calculator.tar.gz
+
+      - name: Upload image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image
+          path: ${{ env.APP_DIR }}/session16-calculator.tar.gz
+          retention-days: 3
+
+  security-check:
+    name: Basic security check
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Look for committed secrets / key files
+        run: |
+          if find . -type f \( -name ".env" -o -name "*.pem" -o -name "*.key" \) | grep .; then
+            echo "::error::Sensitive file committed!"; exit 1
+          fi
+          echo "No sensitive files found."
+
+      - name: Use a secret safely (GitHub masks it in logs)
+        env:
+          DEMO_API_KEY: ${{ secrets.DEMO_API_KEY }}
+        run: |
+          if [ -n "$DEMO_API_KEY" ]; then
+            echo "DEMO_API_KEY is set (length ${#DEMO_API_KEY}); value printed as: $DEMO_API_KEY"
+          else
+            echo "DEMO_API_KEY repository secret is not configured - skipping."
+          fi
+
+  # ---------------------------------------------------------------- CD ----
+  push-image:
+    name: Push image to GHCR
+    needs: [build-image, security-check]
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download image artifact from the build job
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image
+          path: ${{ env.APP_DIR }}
+
+      - name: Load image
+        run: gunzip -c session16-calculator.tar.gz | docker load
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}   # built-in secret, no setup needed
+
+      - name: Tag and push
+        id: meta
+        run: |
+          SHORT=${GITHUB_SHA::7}
+          docker tag session16-calculator:$SHORT $IMAGE_NAME:$SHORT
+          docker tag session16-calculator:$SHORT $IMAGE_NAME:latest
+          docker push $IMAGE_NAME:$SHORT
+          docker push $IMAGE_NAME:latest
+          echo "image=$IMAGE_NAME:$SHORT" >> "$GITHUB_OUTPUT"
+
+  deploy-staging:
+    name: Deploy to staging
+    needs: push-image
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Deploy (pull from registry and run)
+        working-directory: .
+        run: |
+          docker pull ${{ needs.push-image.outputs.image }}
+          docker run -d --name calculator -p 8080:5000 ${{ needs.push-image.outputs.image }}
+
+      - name: Post-deployment smoke tests
+        working-directory: .
+        run: |
+          for i in $(seq 1 15); do curl -fs localhost:8080/health && break; sleep 1; done
+          echo
+          curl -fs "localhost:8080/api/multiply?a=6&b=7"
+          echo
+          test "$(curl -s -o /dev/null -w '%{http_code}' 'localhost:8080/api/divide?a=1&b=0')" = 400
+
+      - name: Deployment summary
+        working-directory: .
+        run: |
+          {
+            echo "## 🚀 Deployed to staging"
+            echo "| | |"; echo "|---|---|"
+            echo "| Image | \`${{ needs.push-image.outputs.image }}\` |"
+            echo "| Commit | \`${GITHUB_SHA::7}\` |"
+            echo "| Health | \`$(curl -s localhost:8080/health)\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
