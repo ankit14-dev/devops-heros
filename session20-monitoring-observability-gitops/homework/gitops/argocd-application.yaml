@@ -1,0 +1,21 @@
+# Argo CD Application: keep the cluster in sync with app/ in my GitHub repo
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gitops-demo
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ankit14-dev/devops-heros.git
+    targetRevision: main
+    path: session20-monitoring-observability-gitops/homework/gitops/app
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: gitops-demo
+  syncPolicy:
+    automated:
+      prune: true      # resources deleted from Git are deleted from the cluster
+      selfHeal: true   # manual changes in the cluster are reverted to Git
+    syncOptions:
+      - CreateNamespace=true
