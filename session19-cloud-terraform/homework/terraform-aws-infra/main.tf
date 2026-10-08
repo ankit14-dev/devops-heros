@@ -1,11 +1,6 @@
 # Root module: wires the three child modules together.
 # Dependency chain: network (VPC -> subnet -> IGW -> route table -> SG) -> compute (EC2), storage (S3) -> compute (IAM read access)
 
-# my public IP - used to show the website is reachable from outside
-data "http" "my_ip" {
-  url = "https://checkip.amazonaws.com"
-}
-
 module "network" {
   source             = "./modules/network"
   name               = var.project

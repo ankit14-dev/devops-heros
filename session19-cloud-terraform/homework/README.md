@@ -28,10 +28,10 @@
 
 | Concept | Where |
 |---|---|
-| **Providers** | `versions.tf`: `hashicorp/aws ~> 6.0` (with `default_tags`), `hashicorp/http` |
+| **Providers** | `versions.tf`: `hashicorp/aws ~> 6.0` with `default_tags` on every resource |
 | **Variables** | `variables.tf` + `terraform.tfvars` (region, CIDRs, instance type, optional SSH CIDR) |
 | **Resources** | VPC, IGW, subnet, route table + association, SG + rules, IAM role/policy/profile, EC2, S3 bucket/settings/object |
-| **Data sources** | `aws_availability_zones`, `aws_ami` (latest Ubuntu), `aws_caller_identity`, `http` (my public IP) |
+| **Data sources** | `aws_availability_zones`, `aws_ami` (latest Ubuntu 24.04), `aws_caller_identity` (hashed into the bucket name) |
 | **Outputs** | `outputs.tf`: VPC/subnet/SG/instance IDs, public IP, **website URL**, bucket name |
 | **Dependencies** | *implicit*, through references (`module.network.public_subnet_id` → EC2, `module.storage.bucket_arn` → IAM policy); *explicit* `depends_on` (S3 object after the encryption config) |
 | **Modules** | `modules/network`, `modules/compute`, `modules/storage` with their own variables and outputs |
@@ -57,10 +57,39 @@ terraform destroy              # clean up (avoid charges)
 
 ![validate](screenshots/01-structure-validate.png)
 
-<!-- AWS-APPLY-S19 -->
-### plan → apply → website → state → destroy
+### plan – 17 resources across the three modules
 
-> ⏳ This creates real (free-tier) AWS resources. It runs as soon as the AWS CLI is configured on my machine, and the screenshots of the plan, the running website, the AWS console and the destroy will be added here.
+![plan](screenshots/02-plan.png)
+
+### apply
+
+![apply](screenshots/03-apply.png)
+
+Terraform builds independent resources in parallel (VPC, IAM role and S3 bucket all start at once) and waits on references: the subnet waits for the VPC, the EC2 instance for the subnet, security group, instance profile and bucket.
+
+> **Privacy fix:** my first version had a `my_public_ip` output (from the `http` provider), so the apply output contained my home IP. I removed that output and the `http` provider from the code. In this screenshot the value is shown as `<redacted>`; everything else is the real apply output.
+
+### The website, served from the new EC2 instance
+
+The page was built at boot by `user_data`. The last row was read from the **private** S3 bucket through the instance's IAM role, with no access keys on the server:
+
+![website](screenshots/04-website.png)
+
+### Verified with the AWS CLI
+
+Instance `running`, `t3.micro`, **IMDSv2 required**, instance profile attached; VPC `10.19.0.0/16`; the security group allows **only TCP 80**; the public route table has `0.0.0.0/0 → igw-…`; the S3 object is present; and **port 22 is closed** from the internet:
+
+![verify](screenshots/05-verify-aws.png)
+
+### Terraform state and dependency graph
+
+![state](screenshots/06-state.png)
+
+### destroy – all 17 resources removed
+
+![destroy](screenshots/07-destroy.png)
+
+The IGW and EC2 instance took ~30 s; Terraform deletes in reverse dependency order. Afterwards the VPC no longer exists, the website no longer responds, and the state is empty, so there are no ongoing charges.
 
 ## Security choices
 

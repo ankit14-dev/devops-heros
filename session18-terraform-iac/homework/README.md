@@ -50,10 +50,33 @@ Other things to note: `default_tags` in the provider tags every resource. A `val
 
 ![init fmt validate](screenshots/01-init-fmt-validate.png)
 
-<!-- AWS-APPLY-S18 -->
-#### plan, apply, show, output, destroy
+#### plan – preview the 5 resources to be created
 
-> ⏳ These steps create a real bucket in my AWS account. They run as soon as the AWS CLI is configured on my machine (`aws configure`), and the screenshots will appear here.
+![plan](screenshots/02-plan.png)
+
+`-out tfplan` saves the exact plan, so `apply` does precisely what I reviewed.
+
+#### apply – create them in AWS (ap-south-1)
+
+![apply](screenshots/03-apply.png)
+
+Terraform created the bucket first and the 4 dependent resources in parallel after it (they reference `aws_s3_bucket.demo.id`). The object waited for the encryption config (`depends_on`).
+
+#### show / state / output
+
+![show output](screenshots/04-show-output.png)
+
+#### Verified with the AWS CLI (independently of Terraform)
+
+The bucket exists, the object content is readable, versioning is `Enabled`, encryption is `AES256`, all 4 public-access blocks are `True`, and the `default_tags` from the provider were applied:
+
+![verify](screenshots/05-verify-aws-cli.png)
+
+#### destroy – remove everything (no charges)
+
+![destroy](screenshots/06-destroy.png)
+
+All 5 resources were destroyed, the state is empty, and `head-bucket` now returns **404 Not Found**.
 
 ---
 

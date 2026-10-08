@@ -80,7 +80,7 @@ resource "aws_vpc_security_group_egress_rule" "all" {
 
 # ---------------------------------------------------------------- storage (backups)
 resource "aws_s3_bucket" "backups" {
-  bucket        = "${var.name}-db-backups-${data.aws_caller_identity.current.account_id}"
+  bucket        = "${var.name}-db-backups-${substr(sha1(data.aws_caller_identity.current.account_id), 0, 8)}"
   force_destroy = true
 }
 

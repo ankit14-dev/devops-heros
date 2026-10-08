@@ -1,8 +1,8 @@
 data "aws_caller_identity" "current" {}
 
 resource "aws_s3_bucket" "assets" {
-  # account id makes the (global) name unique
-  bucket        = "${var.name}-assets-${data.aws_caller_identity.current.account_id}"
+  # a hash of the account id makes the (global) name unique without publishing the id
+  bucket        = "${var.name}-assets-${substr(sha1(data.aws_caller_identity.current.account_id), 0, 8)}"
   force_destroy = true
 }
 
