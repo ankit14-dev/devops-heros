@@ -10,7 +10,9 @@ echo '/swapfile none swap sw 0 0' >> /etc/fstab
 apt-get update -y && apt-get install -y git curl unzip postgresql-client
 
 # single-node Kubernetes (k3s ships Traefik ingress, CoreDNS, local-path storage, metrics-server)
-curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--write-kubeconfig-mode 644" sh -
+# Traefik and metrics-server are disabled to fit in 1 GiB RAM; the frontend is exposed on :80 through
+# k3s' built-in ServiceLB (a Service of type LoadBalancer binds the node's port 80)
+curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--write-kubeconfig-mode 644 --disable traefik --disable metrics-server" sh -
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 until kubectl get nodes | grep -q " Ready"; do sleep 5; done
 
@@ -20,15 +22,18 @@ git clone --depth 1 --branch ${git_ref} https://github.com/ankit14-dev/devops-he
 PUBLIC_IP=$(curl -s -H "X-aws-ec2-metadata-token: $(curl -s -X PUT http://169.254.169.254/latest/api/token -H 'X-aws-ec2-metadata-token-ttl-seconds: 60')" http://169.254.169.254/latest/meta-data/public-ipv4)
 
 kubectl create namespace taskboard
+set +x   # never echo the generated password into the console log
 kubectl -n taskboard create secret generic taskboard-db-credentials \
   --from-literal=postgres-password="$(openssl rand -base64 24)"
+set -x
 
 helm upgrade --install taskboard /opt/devops-heros/final-devops-project/helm/taskboard -n taskboard \
   -f /opt/devops-heros/final-devops-project/helm/taskboard/values-dev.yaml \
   --set environment=aws-k3s \
   --set backend.image.tag=${image_tag} --set frontend.image.tag=${image_tag} \
   --set postgresql.existingSecret=taskboard-db-credentials \
-  --set ingress.className=traefik --set ingress.host=taskboard.$PUBLIC_IP.nip.io \
+  --set ingress.enabled=false --set frontend.service.type=LoadBalancer \
+  --set backend.autoscaling.enabled=false --set monitoring.grafanaDashboard.enabled=false \
   --set backend.resources.requests.memory=96Mi --set postgresql.resources.requests.memory=96Mi \
   --wait --timeout 15m
 
@@ -44,4 +49,18 @@ curl -sSL https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o /tmp/awscl
 echo "0 2 * * * root /usr/local/bin/taskboard-backup.sh" > /etc/cron.d/taskboard-backup
 /usr/local/bin/taskboard-backup.sh
 
-echo "TASKBOARD READY at http://taskboard.$PUBLIC_IP.nip.io/"
+# wait until the frontend answers on the node's port 80 (via ServiceLB)
+for i in $(seq 1 60); do curl -s -o /dev/null -m 5 http://127.0.0.1/healthz && break; sleep 10; done
+
+# diagnostics -> EC2 console log (readable with: aws ec2 get-console-output)
+{
+  echo "===== TASKBOARD DIAGNOSTICS ====="
+  free -m
+  kubectl get nodes -o wide
+  kubectl get pods -A -o wide
+  kubectl get svc -A
+    kubectl -n taskboard get ingress
+  echo "===== END DIAGNOSTICS ====="
+} 2>&1 | tee /dev/console
+
+echo "TASKBOARD READY at http://$PUBLIC_IP/"

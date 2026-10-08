@@ -25,6 +25,8 @@ frontend:
     pullPolicy: IfNotPresent
   replicas: 2
   port: 8080
+  service:
+    type: ClusterIP   # LoadBalancer on single-node k3s without an ingress controller (see terraform/)
   resources:
     requests: {cpu: 20m, memory: 32Mi}
     limits: {cpu: 200m, memory: 64Mi}

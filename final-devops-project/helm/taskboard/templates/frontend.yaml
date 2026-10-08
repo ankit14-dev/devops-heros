@@ -42,6 +42,7 @@ metadata:
   labels: {{- include "taskboard.labels" . | nindent 4 }}
     app.kubernetes.io/component: frontend
 spec:
+  type: {{ .Values.frontend.service.type }}
   selector: {{- include "taskboard.selector" (dict "root" . "component" "frontend") | nindent 4 }}
   ports:
     - name: http
