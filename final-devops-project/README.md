@@ -95,7 +95,7 @@ Request path inside the cluster: `Ingress /` → **frontend** (static React) · 
 | App | Python 3.12, FastAPI, SQLAlchemy 2.1, Alembic, PostgreSQL 16, React 19, Vite 8, nginx |
 | Quality | pytest + pytest-cov, ruff |
 | Containers | Docker, Docker Compose, GHCR |
-| Orchestration | Kubernetes (minikube, kind in CI, k3s on AWS), Helm 3 |
+| Orchestration | Kubernetes (minikube, kind in CI, k3s on AWS EC2), Helm 3 |
 | CI/CD | GitHub Actions |
 | Security | Bandit, CodeQL, pip-audit, npm audit, gitleaks, Trivy |
 | Observability | Prometheus Operator (kube-prometheus-stack), Grafana, Alertmanager, prometheus-fastapi-instrumentator |
@@ -176,7 +176,7 @@ Chart highlights:
 | VPC `10.21.0.0/16`, public subnet, Internet Gateway, route table | network |
 | Security group: 80/443 in, **no SSH** | access only through the Ingress; admin access via **SSM Session Manager** |
 | IAM role + instance profile | `s3:PutObject/GetObject` on **only** the backup bucket + SSM; no access keys on the server |
-| EC2 `t3.micro` (Ubuntu 24.04, encrypted gp3, IMDSv2 only) | runs **k3s**. [`bootstrap-k3s.sh.tftpl`](terraform/bootstrap-k3s.sh.tftpl) adds swap, installs k3s + Helm, clones this repo, creates the DB Secret and `helm install`s the chart with the GHCR image tag from CI |
+| EC2 `t3.micro` (Ubuntu 24.04, encrypted gp3, IMDSv2 only) | runs **k3s** (Traefik and metrics-server disabled to fit in 1 GiB). [`bootstrap-k3s.sh.tftpl`](terraform/bootstrap-k3s.sh.tftpl) adds 2 GiB swap, installs k3s + Helm, clones this repo, creates the DB Secret and `helm install`s the chart with the GHCR image tag from CI; the frontend is exposed on port 80 by k3s ServiceLB |
 | S3 bucket (versioned, private, 30-day lifecycle) | nightly `pg_dump` backups from a cron job |
 
 ```bash
@@ -189,8 +189,37 @@ terraform destroy
 
 ![validate](screenshots/50-terraform-validate.png)
 
-<!-- AWS-APPLY -->
-> The AWS `plan` / `apply` / `destroy` evidence for this module will be added after AWS credentials are configured (Sessions 18 and 19 use the same account).
+### Running it on AWS (real run, ap-south-1)
+
+**plan:** 18 resources.
+
+![plan](screenshots/51-terraform-plan.png)
+
+**apply (first attempt):**
+
+![apply](screenshots/52-terraform-apply.png)
+
+**Troubleshooting the first deployment.** The instance booted and Helm reported `STATUS: deployed`, but `http://<ip>/` returned *Connection refused*. My IAM user deliberately has no `ssm:SendCommand` or Instance Connect rights, so I made the bootstrap script write `kubectl` diagnostics to the **EC2 console log** (`aws ec2 get-console-output`). That showed:
+1. The 1 GiB t3.micro was **thrashing**: each `kubectl` call took about 20 s, and k3s's bundled **Traefik** ingress never came up, so nothing listened on :80.
+2. **A secret leaked into a log:** `set -x` printed the generated DB password into the console log, which is readable by anyone with EC2 access in the account.
+
+Fixes: start k3s with `--disable traefik --disable metrics-server`; add a `frontend.service.type` option to the chart and use `LoadBalancer`, so k3s's tiny ServiceLB binds port 80 directly; wrap the secret creation in `set +x`. Terraform replaced only the instance (`user_data_replace_on_change`), and TaskBoard answered **136 s** after the new instance launched.
+
+**TaskBoard running on AWS** at the EC2 public IP:
+
+![taskboard on aws](screenshots/54-taskboard-on-aws.png)
+
+**Inside k3s** (diagnostics the instance wrote to its console log at boot): all pods Running, the frontend `LoadBalancer` bound to the node, memory 570/909 MiB with swap in use:
+
+![k3s](screenshots/55-k3s-state-on-ec2.png)
+
+**Verified from my laptop with the AWS CLI:** a running t3.micro with IMDSv2 required, the API answering, and **PostgreSQL backups in S3** written by the instance role (one per boot), on a bucket with versioning and a 30-day lifecycle rule:
+
+![verify](screenshots/56-aws-verify.png)
+
+**destroy:** all 18 resources removed. The VPC and bucket no longer exist, the site is gone, and a leftover check found 0 instances, 0 custom VPCs, 0 buckets, 0 EIPs and 0 volumes, so nothing is left running in the AWS account.
+
+![destroy](screenshots/57-terraform-destroy.png)
 
 ## 9. CI/CD pipeline
 
